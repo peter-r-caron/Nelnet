@@ -133,6 +133,9 @@ if OUT_FILE > '':
                         else:
                             out.write(QUOTE + str(row[i]) + QUOTE + "\n")
             else:
+                out.write("Statement Executed:\n")
+                out.write(SQL_STMT)
+                out.write("Rows affected: " + str(cursor.rowcount))
                 cursor.commit()
     except IOError as fail_error:
         print(fail_error)
@@ -149,6 +152,9 @@ else:
                 else:
                     print(QUOTE + str(row[i]) + QUOTE)
     else:
+        print("Statement Executed:")
+        print(SQL_STMT)
+        print("Rows affected: " + str(cursor.rowcount))
         cursor.commit()
 
 # Announce the end of the program.
