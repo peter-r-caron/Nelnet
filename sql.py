@@ -5,7 +5,7 @@
     Parameters:
         --colsep    Column separator on the output file.  Optional, default=",".  For tab delimited, use "\t"
         --database  Name of the ODBC datasource for database connection.  Required, no default.
-        --encoding  Encoding of SQL input file.  Optional, default="utf-8".
+        --encoding  Encoding of input/output files.  Optional, default="utf-8".
         --infile    Input SQL file name.  Optional, text may be piped in from console.
         --outfile   Output file name.  Optional, text will be written to the console if not used.
         --quote     Quote character around column values.  Optional, default='"'.  Eliminate quotes with --q=""
@@ -27,12 +27,12 @@
         On Windows, you can change the file encoding of the SQL input file using notepad's "save as..." feature.
 
         For tab delimited output, use --colsep="\t" in the command line parameters.
-
-        pyodbc module does not support DB2 data sources.
 '''
+
 import sys
 import getopt
-import pyodbc
+import database
+from database import Database
 
 def _print_syntax():
     syntax = '''    Default syntax: echo "select * from table_name" | py sql.py --database=DB_NAME > somefile.csv
@@ -41,7 +41,7 @@ def _print_syntax():
     Parameters:
         --colsep    Column separator on the output.  Optional, default=",".  For tab delimited, use "\\t".
         --database  Name of the ODBC datasource for database connection.  Required, no default.
-        --encoding  Encoding of SQL input file.  Optional, default="utf-8".
+        --encoding  Encoding of input/output file.  Optional, default="utf-8".
         --infile    Input SQL file name.  Optional, default=pipe SQL input from console.
         --outfile   Output file name.  Optional, default=print output to console.
         --quote     Quote character around column values.  Optional, default='"'.  Eliminate quotes with --q=\"\"
@@ -93,20 +93,14 @@ if OUT_FILE > '':
 
 # If a database name was provided, connect to the database.
 if DB_NAME > '':
-    try:
-        conn = pyodbc.connect('DSN=' + DB_NAME)
-    except SystemError as fail_error:
-        print(fail_error)
-        print("Unable to connect to " + DB_NAME + ".  Exiting " + sys.argv[0] + ".")
-        sys.exit(1)
-    finally:
-        cursor = conn.cursor()
+    pass
 # Otherwise, fail with syntax in the error message.
 else:
     print("--database parameter is a required value")
     _print_syntax()
 
-# Check the infile parameter.
+# If an input file was passed from command line, open the file for reading
+# and build the SQL statement.  Otherwise, build the SQL statement from console input.
 if IN_FILE > '':
     try:
         with open(IN_FILE, "rt", encoding=ENCODING) as inf:
@@ -119,43 +113,54 @@ else:
     for line in sys.stdin:
         SQL_STMT += line
 
-# Check the outfile parameter.
+# If an output file was passed from command line, open it for writing.
+# Otherwise, any resultset will be output to stdout (console).
 if OUT_FILE > '':
     try:
-        with open(OUT_FILE, "wt") as out:
-            cursor.execute(SQL_STMT)
-            if cursor.description is not None:
-                resultset = cursor.fetchall()
-                for row in resultset:
-                    for i in range(0,len(row)):
-                        if i < len(row) - 1:
-                            out.write(QUOTE + str(row[i]) + QUOTE + COL_SEP)
-                        else:
-                            out.write(QUOTE + str(row[i]) + QUOTE + "\n")
-            else:
-                out.write("Statement Executed:\n")
-                out.write(SQL_STMT)
-                out.write("Rows affected: " + str(cursor.rowcount))
-                cursor.commit()
+        OUT = open(OUT_FILE ,mode="wt",buffering=-1,encoding=ENCODING)
     except IOError as fail_error:
         print(fail_error)
         print("Unable to open " + OUT_FILE + " for writing.")
         sys.exit(1)
 else:
-    cursor.execute(SQL_STMT)
-    if cursor.description is not None:
-        resultset = cursor.fetchall()
-        for row in resultset:
-            for i in range(0,len(row)):
-                if i < len(row) - 1:
-                    print(QUOTE + str(row[i]) + QUOTE + COL_SEP, end='')
+    OUT = False
+
+# Connect the database.
+d = Database(DB_NAME)
+
+# Execute the SQL statement.
+rows = d.result_set(SQL_STMT)
+
+# If rows were returned in the resultset, either write them to the output file, 
+# or print them to the console, as directed by command line arguments.
+if rows is None:
+    pass
+else:
+    for row in rows:
+        i = 0
+        # Print each column value wrapped in quote characters 
+        # and separated by the column separator.
+        for x in row:
+            if i > 0:
+                if OUT:
+                    OUT.write(COL_SEP)
                 else:
-                    print(QUOTE + str(row[i]) + QUOTE)
-    else:
-        print("Statement Executed:")
-        print(SQL_STMT)
-        print("Rows affected: " + str(cursor.rowcount))
-        cursor.commit()
+                    print(",", end='')
+            if OUT:
+                OUT.write(QUOTE + str(x).strip() + QUOTE)
+            else:
+                print(QUOTE + str(x).strip() + QUOTE, end='')
+            i += 1
+        # Print a new line to end the tuple.
+        if OUT:
+             OUT.write("\n")
+        else:
+            print('')
+
+# Clean up and exit.
+if OUT:
+    OUT.close()  # If an output file was created, close it.
+d.close() # Close the cursor.
 
 # Announce the end of the program.
 if OUT_FILE > '':
